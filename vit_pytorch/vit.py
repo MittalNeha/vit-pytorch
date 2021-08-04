@@ -61,7 +61,7 @@ class Attention(nn.Module):
 
         out = einsum('b h i j, b h j d -> b h i d', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)')
-        return self.to_out(out)
+        return self.to_out(out), attn
 
 class Transformer(nn.Module):
     def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout = 0.):
@@ -73,10 +73,13 @@ class Transformer(nn.Module):
                 PreNorm(dim, FeedForward(dim, mlp_dim, dropout = dropout))
             ]))
     def forward(self, x):
+        attn_weights = []
         for attn, ff in self.layers:
-            x = attn(x) + x
+            attn_out, att_mat = attn(x)
+            attn_weights.append(att_mat)
+            x =  attn_out + x
             x = ff(x) + x
-        return x
+        return x, attn_weights
 
 class ViT(nn.Module):
     def __init__(self, *, image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, pool = 'cls', channels = 3, dim_head = 64, dropout = 0., emb_dropout = 0.):
@@ -118,9 +121,9 @@ class ViT(nn.Module):
         x += self.pos_embedding[:, :(n + 1)]
         x = self.dropout(x)
 
-        x = self.transformer(x)
+        x, att_mat = self.transformer(x)
 
         x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
 
         x = self.to_latent(x)
-        return self.mlp_head(x)
+        return self.mlp_head(x), att_mat
